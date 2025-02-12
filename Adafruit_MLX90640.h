@@ -26,7 +26,7 @@
 
 #define MLX90640_DEVICEID1 0x2407 ///< I2C identification register
 
-/** Mode to read pixel frames (two per image) */
+ /** Mode to read pixel frames (two per image) */
 typedef enum mlx90640_mode {
   MLX90640_INTERLEAVED, ///< Read data from camera by interleaved lines
   MLX90640_CHESS,       ///< Read data from camera in alternating pixels
@@ -60,9 +60,14 @@ typedef enum mlx90640_refreshrate {
  */
 class Adafruit_MLX90640 {
 public:
+  int grab_start_time = 0;
+  int grab_end_time = 0;
+  int calculate_start_time = 0;
+  int calculate_end_time = 0;
+
   Adafruit_MLX90640();
   boolean begin(uint8_t i2c_addr = MLX90640_I2CADDR_DEFAULT,
-                TwoWire *wire = &Wire);
+    TwoWire* wire = &Wire);
 
   mlx90640_mode_t getMode(void);
   void setMode(mlx90640_mode_t mode);
@@ -71,40 +76,45 @@ public:
   mlx90640_refreshrate_t getRefreshRate(void);
   void setRefreshRate(mlx90640_refreshrate_t res);
 
-  int getFrame(float *framebuf);
-
+  int getFrame(float* framebuf);
+  int getImage(float* framebuf);
   float getTa(bool newFrame = true);
-
+  bool updatePartialFrame(float* framebuf);
   uint16_t serialNumber[3]; ///< Unique serial number read from device
 
 private:
-  int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress,
-                       uint16_t nMemAddressRead, uint16_t *data);
-  int MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress,
-                        uint16_t data);
-
-  Adafruit_I2CDevice *i2c_dev;
-  paramsMLX90640 _params;
   float ta = -999.0;
+  int MLX90640_I2CRead(uint8_t slaveAddr, uint16_t startAddress,
+    uint16_t nMemAddressRead, uint16_t* data);
+  int MLX90640_I2CWrite(uint8_t slaveAddr, uint16_t writeAddress,
+    uint16_t data);
+  int MLX90640_I2CGeneralReset();
+  Adafruit_I2CDevice* i2c_dev;
+  paramsMLX90640 _params;
+  uint16_t mlx90640Frame_[834];
 
-  int MLX90640_DumpEE(uint8_t slaveAddr, uint16_t *eeData);
-  int MLX90640_GetFrameData(uint8_t slaveAddr, uint16_t *frameData);
-  int MLX90640_ExtractParameters(uint16_t *eeData, paramsMLX90640 *mlx90640);
-  float MLX90640_GetVdd(uint16_t *frameData, const paramsMLX90640 *params);
-  float MLX90640_GetTa(uint16_t *frameData, const paramsMLX90640 *params);
-  void MLX90640_GetImage(uint16_t *frameData, const paramsMLX90640 *params,
-                         float *result);
-  void MLX90640_CalculateTo(uint16_t *frameData, const paramsMLX90640 *params,
-                            float emissivity, float tr, float *result);
+  int MLX90640_DumpEE(uint8_t slaveAddr, uint16_t* eeData);
+  int MLX90640_SynchFrame(uint8_t slaveAddr);
+  int MLX90640_TriggerMeasurement(uint8_t slaveAddr);
+  int MLX90640_GetFrameData(uint8_t slaveAddr, uint16_t* frameData);
+  int MLX90640_ExtractParameters(uint16_t* eeData, paramsMLX90640* mlx90640);
+  float MLX90640_GetVdd(uint16_t* frameData, const paramsMLX90640* params);
+  float MLX90640_GetTa(uint16_t* frameData, const paramsMLX90640* params);
+  void MLX90640_GetImage(uint16_t* frameData, const paramsMLX90640* params, float* result);
+  void MLX90640_CalculateTo(uint16_t* frameData, const paramsMLX90640* params, float emissivity, float tr, float* result);
   int MLX90640_SetResolution(uint8_t slaveAddr, uint8_t resolution);
   int MLX90640_GetCurResolution(uint8_t slaveAddr);
   int MLX90640_SetRefreshRate(uint8_t slaveAddr, uint8_t refreshRate);
   int MLX90640_GetRefreshRate(uint8_t slaveAddr);
-  int MLX90640_GetSubPageNumber(uint16_t *frameData);
+  int MLX90640_GetSubPageNumber(uint16_t* frameData);
   int MLX90640_GetCurMode(uint8_t slaveAddr);
   int MLX90640_SetInterleavedMode(uint8_t slaveAddr);
   int MLX90640_SetChessMode(uint8_t slaveAddr);
-  void MLX90640_BadPixelsCorrection(uint16_t *pixels, float *to, int mode,
-                                    paramsMLX90640 *params);
+  void MLX90640_BadPixelsCorrection(uint16_t* pixels, float* to, int mode, paramsMLX90640* params);
+  /*
+  Try to read a page of data.  If data was not ready `0` is returned.
+  This must be called 2x to completely get the frameData.
+  */
+  int MLX90640_GetFramePage(uint8_t slaveAddr, uint16_t* frameData, uint16_t& statusRegister);
 };
 #endif
