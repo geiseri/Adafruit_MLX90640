@@ -13,7 +13,7 @@ void setup() {
   delay(100);
 
   Serial.println("Adafruit MLX90640 Simple Test");
-  if (! mlx.begin(MLX90640_I2CADDR_DEFAULT, &Wire)) {
+  if (! mlx.begin(Adafruit_MLX90640::MLX90640_I2CADDR_DEFAULT, &Wire)) {
     Serial.println("MLX90640 not found!");
     while (1) delay(10);
   }
@@ -24,37 +24,37 @@ void setup() {
   Serial.print(mlx.serialNumber[1], HEX);
   Serial.println(mlx.serialNumber[2], HEX);
   
-  //mlx.setMode(MLX90640_INTERLEAVED);
-  mlx.setMode(MLX90640_CHESS);
+  //mlx.setMode(mlx90640_mode_t::INTERLEAVED);
+  mlx.setMode(mlx90640_mode_t::CHESS);
   Serial.print("Current mode: ");
-  if (mlx.getMode() == MLX90640_CHESS) {
+  if (mlx.getMode() == mlx90640_mode_t::CHESS) {
     Serial.println("Chess");
   } else {
     Serial.println("Interleave");    
   }
 
-  mlx.setResolution(MLX90640_ADC_18BIT);
+  mlx.setResolution(mlx90640_resolution_t::ADC_18BIT);
   Serial.print("Current resolution: ");
   mlx90640_resolution_t res = mlx.getResolution();
   switch (res) {
-    case MLX90640_ADC_16BIT: Serial.println("16 bit"); break;
-    case MLX90640_ADC_17BIT: Serial.println("17 bit"); break;
-    case MLX90640_ADC_18BIT: Serial.println("18 bit"); break;
-    case MLX90640_ADC_19BIT: Serial.println("19 bit"); break;
+    case mlx90640_resolution_t::ADC_16BIT: Serial.println("16 bit"); break;
+    case mlx90640_resolution_t::ADC_17BIT: Serial.println("17 bit"); break;
+    case mlx90640_resolution_t::ADC_18BIT: Serial.println("18 bit"); break;
+    case mlx90640_resolution_t::ADC_19BIT: Serial.println("19 bit"); break;
   }
 
-  mlx.setRefreshRate(MLX90640_2_HZ);
+  mlx.setRefreshRate(mlx90640_refreshrate_t::HZ_2);
   Serial.print("Current frame rate: ");
   mlx90640_refreshrate_t rate = mlx.getRefreshRate();
   switch (rate) {
-    case MLX90640_0_5_HZ: Serial.println("0.5 Hz"); break;
-    case MLX90640_1_HZ: Serial.println("1 Hz"); break; 
-    case MLX90640_2_HZ: Serial.println("2 Hz"); break;
-    case MLX90640_4_HZ: Serial.println("4 Hz"); break;
-    case MLX90640_8_HZ: Serial.println("8 Hz"); break;
-    case MLX90640_16_HZ: Serial.println("16 Hz"); break;
-    case MLX90640_32_HZ: Serial.println("32 Hz"); break;
-    case MLX90640_64_HZ: Serial.println("64 Hz"); break;
+    case mlx90640_refreshrate_t::HZ_0_5: Serial.println("0.5 Hz"); break;
+    case mlx90640_refreshrate_t::HZ_1: Serial.println("1 Hz"); break; 
+    case mlx90640_refreshrate_t::HZ_2: Serial.println("2 Hz"); break;
+    case mlx90640_refreshrate_t::HZ_4: Serial.println("4 Hz"); break;
+    case mlx90640_refreshrate_t::HZ_8: Serial.println("8 Hz"); break;
+    case mlx90640_refreshrate_t::HZ_16: Serial.println("16 Hz"); break;
+    case mlx90640_refreshrate_t::HZ_32: Serial.println("32 Hz"); break;
+    case mlx90640_refreshrate_t::HZ_64: Serial.println("64 Hz"); break;
   }
 }
 

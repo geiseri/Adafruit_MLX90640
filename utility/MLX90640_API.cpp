@@ -18,6 +18,8 @@
 #include "../headers/MLX90640_API.h"
 #include "../Adafruit_MLX90640.h"
 #include <math.h>
+#include <cmath>
+#include <limits>
 
 #define MLX90640_NO_ERROR 0
 #define MLX90640_I2C_NACK_ERROR 1
@@ -166,7 +168,7 @@ int Adafruit_MLX90640::MLX90640_TriggerMeasurement(uint8_t slaveAddr) {
 }
 
 
-int Adafruit_MLX90640::MLX90640_GetFramePage(uint8_t slaveAddr, uint16_t* frameData, uint16_t& statusRegister) {
+int Adafruit_MLX90640::MLX90640_GetFramePage(uint8_t slaveAddr, uint16_t& statusRegister) {
     uint16_t dataReady = 0;
     uint16_t controlRegister1;
     int error = 1;
@@ -188,7 +190,7 @@ int Adafruit_MLX90640::MLX90640_GetFramePage(uint8_t slaveAddr, uint16_t* frameD
         return error;
     }
 
-    error = MLX90640_I2CRead(slaveAddr, MLX90640_PIXEL_DATA_START_ADDRESS, MLX90640_PIXEL_NUM, frameData);
+    error = MLX90640_I2CRead(slaveAddr, MLX90640_PIXEL_DATA_START_ADDRESS, MLX90640_PIXEL_NUM, mlx90640Frame_.data());
     if (error != MLX90640_NO_ERROR) {
         return error;
     }
@@ -199,8 +201,8 @@ int Adafruit_MLX90640::MLX90640_GetFramePage(uint8_t slaveAddr, uint16_t* frameD
     }
 
     error = MLX90640_I2CRead(slaveAddr, MLX90640_CTRL_REG, 1, &controlRegister1);
-    frameData[832] = controlRegister1;
-    frameData[833] = MLX90640_GET_FRAME(statusRegister);
+    mlx90640Frame_[832] = controlRegister1;
+    mlx90640Frame_[833] = MLX90640_GET_FRAME(statusRegister);
 
     if (error != MLX90640_NO_ERROR) {
         return error;
@@ -209,11 +211,11 @@ int Adafruit_MLX90640::MLX90640_GetFramePage(uint8_t slaveAddr, uint16_t* frameD
     error = ValidateAuxData(data);
     if (error == MLX90640_NO_ERROR) {
         for (cnt = 0; cnt < MLX90640_AUX_NUM; cnt++) {
-            frameData[cnt + MLX90640_PIXEL_NUM] = data[cnt];
+            mlx90640Frame_[cnt + MLX90640_PIXEL_NUM] = data[cnt];
         }
     }
 
-    error = ValidateFrameData(frameData);
+    error = ValidateFrameData(mlx90640Frame_.data());
     if (error != MLX90640_NO_ERROR) {
         return error;
     }
@@ -319,23 +321,23 @@ static int ValidateAuxData(uint16_t* auxData) {
 
 }
 
-int Adafruit_MLX90640::MLX90640_ExtractParameters(uint16_t* eeData, paramsMLX90640* mlx90640) {
+int Adafruit_MLX90640::MLX90640_ExtractParameters(uint16_t* eeData) {
     int error = 0;
 
-    ExtractVDDParameters(eeData, mlx90640);
-    ExtractPTATParameters(eeData, mlx90640);
-    ExtractGainParameters(eeData, mlx90640);
-    ExtractTgcParameters(eeData, mlx90640);
-    ExtractResolutionParameters(eeData, mlx90640);
-    ExtractKsTaParameters(eeData, mlx90640);
-    ExtractKsToParameters(eeData, mlx90640);
-    ExtractCPParameters(eeData, mlx90640);
-    ExtractAlphaParameters(eeData, mlx90640);
-    ExtractOffsetParameters(eeData, mlx90640);
-    ExtractKtaPixelParameters(eeData, mlx90640);
-    ExtractKvPixelParameters(eeData, mlx90640);
-    ExtractCILCParameters(eeData, mlx90640);
-    error = ExtractDeviatingPixels(eeData, mlx90640);
+    ExtractVDDParameters(eeData, &_params);
+    ExtractPTATParameters(eeData, &_params);
+    ExtractGainParameters(eeData, &_params);
+    ExtractTgcParameters(eeData, &_params);
+    ExtractResolutionParameters(eeData, &_params);
+    ExtractKsTaParameters(eeData, &_params);
+    ExtractKsToParameters(eeData, &_params);
+    ExtractCPParameters(eeData, &_params);
+    ExtractAlphaParameters(eeData, &_params);
+    ExtractOffsetParameters(eeData, &_params);
+    ExtractKtaPixelParameters(eeData, &_params);
+    ExtractKvPixelParameters(eeData, &_params);
+    ExtractCILCParameters(eeData, &_params);
+    error = ExtractDeviatingPixels(eeData, &_params);
 
     return error;
 
@@ -466,7 +468,7 @@ int Adafruit_MLX90640::MLX90640_GetCurMode(uint8_t slaveAddr) {
 
 //------------------------------------------------------------------------------
 
-void Adafruit_MLX90640::MLX90640_CalculateTo(uint16_t* frameData, const paramsMLX90640* params, float emissivity, float tr, float* result) {
+void Adafruit_MLX90640::MLX90640_CalculateTo(float emissivity, float tr, float* result) {
     float vdd;
     float ta;
     float ta4;
@@ -492,9 +494,17 @@ void Adafruit_MLX90640::MLX90640_CalculateTo(uint16_t* frameData, const paramsML
     float kta;
     float kv;
 
-    subPage = frameData[833];
-    vdd = MLX90640_GetVdd(frameData, params);
-    ta = MLX90640_GetTa(frameData, params);
+    subPage = mlx90640Frame_[833];
+    vdd = MLX90640_GetVdd();
+    ta = MLX90640_GetTa();
+    
+    // Validate ta early since many calculations depend on it
+    // If ta is invalid, return early without modifying result buffer
+    // (result may contain valid data from previous frames)
+    if (!std::isfinite(ta)) {
+        ESP_LOGE("MLX90640", "ta is invalid: %f", ta);
+        return;
+    }
 
     ta4 = (ta + 273.15);
     ta4 = ta4 * ta4;
@@ -504,31 +514,38 @@ void Adafruit_MLX90640::MLX90640_CalculateTo(uint16_t* frameData, const paramsML
     tr4 = tr4 * tr4;
     taTr = tr4 - (tr4 - ta4) / emissivity;
 
-    ktaScale = POW2(params->ktaScale);
-    kvScale = POW2(params->kvScale);
-    alphaScale = POW2(params->alphaScale);
+    ktaScale = POW2(_params.ktaScale);
+    kvScale = POW2(_params.kvScale);
+    alphaScale = POW2(_params.alphaScale);
 
-    alphaCorrR[0] = 1 / (1 + params->ksTo[0] * 40);
+    alphaCorrR[0] = 1 / (1 + _params.ksTo[0] * 40);
     alphaCorrR[1] = 1;
-    alphaCorrR[2] = (1 + params->ksTo[1] * params->ct[2]);
-    alphaCorrR[3] = alphaCorrR[2] * (1 + params->ksTo[2] * (params->ct[3] - params->ct[2]));
+    alphaCorrR[2] = (1 + _params.ksTo[1] * _params.ct[2]);
+    alphaCorrR[3] = alphaCorrR[2] * (1 + _params.ksTo[2] * (_params.ct[3] - _params.ct[2]));
 
     //------------------------- Gain calculation -----------------------------------    
 
-    gain = (float) params->gainEE / (int16_t) frameData[778];
+    // Guard against division by zero in gain calculation
+    // Both gainEE and mlx90640Frame_[778] are int16_t, so result is always finite when gainRaw != 0
+    int16_t gainRaw = (int16_t) mlx90640Frame_[778];
+    if (gainRaw == 0) {
+        gain = 1.0f; // Safe default to prevent inf
+    } else {
+        gain = (float) _params.gainEE / gainRaw;
+    }
 
     //------------------------- To calculation -------------------------------------    
-    mode = (frameData[832] & MLX90640_CTRL_MEAS_MODE_MASK) >> 5;
+    mode = (mlx90640Frame_[832] & MLX90640_CTRL_MEAS_MODE_MASK) >> 5;
 
-    irDataCP[0] = (int16_t) frameData[776] * gain;
-    irDataCP[1] = (int16_t) frameData[808] * gain;
+    irDataCP[0] = (int16_t) mlx90640Frame_[776] * gain;
+    irDataCP[1] = (int16_t) mlx90640Frame_[808] * gain;
 
-    irDataCP[0] = irDataCP[0] - params->cpOffset[0] * (1 + params->cpKta * (ta - 25)) * (1 + params->cpKv * (vdd - 3.3));
-    if (mode == params->calibrationModeEE) {
-        irDataCP[1] = irDataCP[1] - params->cpOffset[1] * (1 + params->cpKta * (ta - 25)) * (1 + params->cpKv * (vdd - 3.3));
+    irDataCP[0] = irDataCP[0] - _params.cpOffset[0] * (1 + _params.cpKta * (ta - 25)) * (1 + _params.cpKv * (vdd - 3.3));
+    if (mode == _params.calibrationModeEE) {
+        irDataCP[1] = irDataCP[1] - _params.cpOffset[1] * (1 + _params.cpKta * (ta - 25)) * (1 + _params.cpKv * (vdd - 3.3));
     }
     else {
-        irDataCP[1] = irDataCP[1] - (params->cpOffset[1] + params->ilChessC[0]) * (1 + params->cpKta * (ta - 25)) * (1 + params->cpKv * (vdd - 3.3));
+        irDataCP[1] = irDataCP[1] - (_params.cpOffset[1] + _params.ilChessC[0]) * (1 + _params.cpKta * (ta - 25)) * (1 + _params.cpKv * (vdd - 3.3));
     }
 
     for (int pixelNumber = 0; pixelNumber < 768; pixelNumber++) {
@@ -543,51 +560,117 @@ void Adafruit_MLX90640::MLX90640_CalculateTo(uint16_t* frameData, const paramsML
             pattern = chessPattern;
         }
 
-        if (pattern == frameData[833]) {
-            irData = (int16_t) frameData[pixelNumber] * gain;
+        if (pattern == mlx90640Frame_[833]) {
+            irData = (int16_t) mlx90640Frame_[pixelNumber] * gain;
 
-            kta = params->kta[pixelNumber] / ktaScale;
-            kv = params->kv[pixelNumber] / kvScale;
-            irData = irData - params->offset[pixelNumber] * (1 + kta * (ta - 25)) * (1 + kv * (vdd - 3.3));
+            kta = _params.kta[pixelNumber] / ktaScale;
+            kv = _params.kv[pixelNumber] / kvScale;
+            irData = irData - _params.offset[pixelNumber] * (1 + kta * (ta - 25)) * (1 + kv * (vdd - 3.3));
 
-            if (mode != params->calibrationModeEE) {
-                irData = irData + params->ilChessC[2] * (2 * ilPattern - 1) - params->ilChessC[1] * conversionPattern;
+            if (mode != _params.calibrationModeEE) {
+                irData = irData + _params.ilChessC[2] * (2 * ilPattern - 1) - _params.ilChessC[1] * conversionPattern;
             }
 
-            irData = irData - params->tgc * irDataCP[subPage];
+            irData = irData - _params.tgc * irDataCP[subPage];
             irData = irData / emissivity;
 
-            alphaCompensated = SCALEALPHA * alphaScale / params->alpha[pixelNumber];
-            alphaCompensated = alphaCompensated * (1 + params->KsTa * (ta - 25));
+            alphaCompensated = SCALEALPHA * alphaScale / _params.alpha[pixelNumber];
+            alphaCompensated = alphaCompensated * (1 + _params.KsTa * (ta - 25));
+            
+            // Validate alphaCompensated is finite and positive
+            // Edge cases that could still cause issues despite ta/KsTa/alphaScale validation:
+            // 1. Floating point overflow/underflow in SCALEALPHA * alphaScale multiplication
+            // 2. Negative result: if ta >> 25 and KsTa < 0, (1 + KsTa*(ta-25)) could be < 0
+            // 3. Very small _params.alpha[pixelNumber] could cause inf from division
+            // 4. Floating point precision issues producing NaN
+            // Skip updating this pixel if invalid (preserve existing value in result buffer)
+            if (!std::isfinite(alphaCompensated) || alphaCompensated <= 0.0f) {
+                ESP_LOGE("MLX90640", "alphaCompensated is invalid: %f", alphaCompensated);
+                continue; // Skip invalid pixel
+            }
 
+            // Validate taTr is finite before calculations
+            // Skip updating this pixel if invalid (preserve existing value in result buffer)
+            if (!std::isfinite(taTr)) {
+                ESP_LOGE("MLX90640", "taTr is invalid: %f", taTr);
+                continue; // Skip invalid pixel
+            }
+            
             Sx = alphaCompensated * alphaCompensated * alphaCompensated * (irData + alphaCompensated * taTr);
-            Sx = sqrt(sqrt(Sx)) * params->ksTo[1];
+            
+            // Guard against negative values before sqrt
+            if (Sx < 0.0f) {
+                ESP_LOGE("MLX90640", "Sx is negative: %f", Sx);
+                Sx = 0.0f; // Clamp to zero to prevent NaN from sqrt
+            }
+            Sx = sqrt(sqrt(Sx)) * _params.ksTo[1];
+            
+            // Guard against division by zero and negative values in To calculation
+            // Skip updating this pixel if invalid (preserve existing value in result buffer)
+            float denominator = alphaCompensated * (1 - _params.ksTo[1] * 273.15) + Sx;
+            if (denominator == 0.0f || !std::isfinite(denominator)) {
+                ESP_LOGE("MLX90640", "denominator is invalid: %f", denominator);
+                continue; // Skip invalid pixel
+            }
+            
+            float innerValue = irData / denominator + taTr;
+            // Guard against overflow to infinity: if irData/denominator would overflow, skip
+            if (!std::isfinite(innerValue)) {
+                ESP_LOGE("MLX90640", "innerValue is invalid: %f", innerValue);
+                continue; // Skip invalid pixel
+            }
+            if (innerValue < 0.0f) {
+                innerValue = 0.0f; // Clamp to prevent NaN from sqrt
+            }
+            To = sqrt(sqrt(innerValue)) - 273.15;
 
-            To = sqrt(sqrt(irData / (alphaCompensated * (1 - params->ksTo[1] * 273.15) + Sx) + taTr)) - 273.15;
-
-            if (To < params->ct[1]) {
+            if (To < _params.ct[1]) {
                 range = 0;
             }
-            else if (To < params->ct[2]) {
+            else if (To < _params.ct[2]) {
                 range = 1;
             }
-            else if (To < params->ct[3]) {
+            else if (To < _params.ct[3]) {
                 range = 2;
             }
             else {
                 range = 3;
             }
 
-            To = sqrt(sqrt(irData / (alphaCompensated * alphaCorrR[range] * (1 + params->ksTo[range] * (To - params->ct[range]))) + taTr)) - 273.15;
-
-            result[pixelNumber] = To;
+            // Guard against division by zero and negative values in final To calculation
+            // Skip updating this pixel if invalid (preserve existing value in result buffer)
+            float rangeDenominator = alphaCompensated * alphaCorrR[range] * (1 + _params.ksTo[range] * (To - _params.ct[range]));
+            if (rangeDenominator == 0.0f || !std::isfinite(rangeDenominator)) {
+                ESP_LOGE("MLX90640", "rangeDenominator is invalid: %f", rangeDenominator);
+                continue; // Skip invalid pixel
+            }
+            
+            float finalInnerValue = irData / rangeDenominator + taTr;
+            // Guard against overflow to infinity: if irData/rangeDenominator would overflow, skip
+            if (!std::isfinite(finalInnerValue)) {
+                ESP_LOGE("MLX90640", "finalInnerValue is invalid: %f", finalInnerValue);
+                continue; // Skip invalid pixel
+            }
+            if (finalInnerValue < 0.0f) {
+                ESP_LOGE("MLX90640", "finalInnerValue is negative: %f", finalInnerValue);
+                finalInnerValue = 0.0f; // Clamp to prevent NaN from sqrt
+            }
+            To = sqrt(sqrt(finalInnerValue)) - 273.15;
+            
+            // Final validation - ensure result is finite before assigning
+            // Skip updating this pixel if invalid (preserve existing value in result buffer)
+            if (std::isfinite(To)) {
+                result[pixelNumber] = To;
+            } else {
+                ESP_LOGE("MLX90640", "To is invalid: %f", To);
+            }
         }
     }
 }
 
 //------------------------------------------------------------------------------
 
-void Adafruit_MLX90640::MLX90640_GetImage(uint16_t* frameData, const paramsMLX90640* params, float* result) {
+void Adafruit_MLX90640::MLX90640_GetImage(float* result) {
     float vdd;
     float ta;
     float gain;
@@ -606,30 +689,30 @@ void Adafruit_MLX90640::MLX90640_GetImage(uint16_t* frameData, const paramsMLX90
     float kta;
     float kv;
 
-    subPage = frameData[833];
-    vdd = MLX90640_GetVdd(frameData, params);
-    ta = MLX90640_GetTa(frameData, params);
+    subPage = mlx90640Frame_[833];
+    vdd = MLX90640_GetVdd();
+    ta = MLX90640_GetTa();
 
-    ktaScale = POW2(params->ktaScale);
-    kvScale = POW2(params->kvScale);
+    ktaScale = POW2(_params.ktaScale);
+    kvScale = POW2(_params.kvScale);
 
     //------------------------- Gain calculation -----------------------------------    
 
-    gain = (float) params->gainEE / (int16_t) frameData[778];
+    gain = (float) _params.gainEE / (int16_t) mlx90640Frame_[778];
 
     //------------------------- Image calculation -------------------------------------    
 
-    mode = (frameData[832] & MLX90640_CTRL_MEAS_MODE_MASK) >> 5;
+    mode = (mlx90640Frame_[832] & MLX90640_CTRL_MEAS_MODE_MASK) >> 5;
 
-    irDataCP[0] = (int16_t) frameData[776] * gain;
-    irDataCP[1] = (int16_t) frameData[808] * gain;
+    irDataCP[0] = (int16_t) mlx90640Frame_[776] * gain;
+    irDataCP[1] = (int16_t) mlx90640Frame_[808] * gain;
 
-    irDataCP[0] = irDataCP[0] - params->cpOffset[0] * (1 + params->cpKta * (ta - 25)) * (1 + params->cpKv * (vdd - 3.3));
-    if (mode == params->calibrationModeEE) {
-        irDataCP[1] = irDataCP[1] - params->cpOffset[1] * (1 + params->cpKta * (ta - 25)) * (1 + params->cpKv * (vdd - 3.3));
+    irDataCP[0] = irDataCP[0] - _params.cpOffset[0] * (1 + _params.cpKta * (ta - 25)) * (1 + _params.cpKv * (vdd - 3.3));
+    if (mode == _params.calibrationModeEE) {
+        irDataCP[1] = irDataCP[1] - _params.cpOffset[1] * (1 + _params.cpKta * (ta - 25)) * (1 + _params.cpKv * (vdd - 3.3));
     }
     else {
-        irDataCP[1] = irDataCP[1] - (params->cpOffset[1] + params->ilChessC[0]) * (1 + params->cpKta * (ta - 25)) * (1 + params->cpKv * (vdd - 3.3));
+        irDataCP[1] = irDataCP[1] - (_params.cpOffset[1] + _params.ilChessC[0]) * (1 + _params.cpKta * (ta - 25)) * (1 + _params.cpKv * (vdd - 3.3));
     }
 
     for (int pixelNumber = 0; pixelNumber < 768; pixelNumber++) {
@@ -644,20 +727,20 @@ void Adafruit_MLX90640::MLX90640_GetImage(uint16_t* frameData, const paramsMLX90
             pattern = chessPattern;
         }
 
-        if (pattern == frameData[833]) {
-            irData = (int16_t) frameData[pixelNumber] * gain;
+        if (pattern == mlx90640Frame_[833]) {
+            irData = (int16_t) mlx90640Frame_[pixelNumber] * gain;
 
-            kta = params->kta[pixelNumber] / ktaScale;
-            kv = params->kv[pixelNumber] / kvScale;
-            irData = irData - params->offset[pixelNumber] * (1 + kta * (ta - 25)) * (1 + kv * (vdd - 3.3));
+            kta = _params.kta[pixelNumber] / ktaScale;
+            kv = _params.kv[pixelNumber] / kvScale;
+            irData = irData - _params.offset[pixelNumber] * (1 + kta * (ta - 25)) * (1 + kv * (vdd - 3.3));
 
-            if (mode != params->calibrationModeEE) {
-                irData = irData + params->ilChessC[2] * (2 * ilPattern - 1) - params->ilChessC[1] * conversionPattern;
+            if (mode != _params.calibrationModeEE) {
+                irData = irData + _params.ilChessC[2] * (2 * ilPattern - 1) - _params.ilChessC[1] * conversionPattern;
             }
 
-            irData = irData - params->tgc * irDataCP[subPage];
+            irData = irData - _params.tgc * irDataCP[subPage];
 
-            alphaCompensated = params->alpha[pixelNumber];
+            alphaCompensated = _params.alpha[pixelNumber];
 
             image = irData * alphaCompensated;
 
@@ -668,48 +751,60 @@ void Adafruit_MLX90640::MLX90640_GetImage(uint16_t* frameData, const paramsMLX90
 
 //------------------------------------------------------------------------------
 
-float Adafruit_MLX90640::MLX90640_GetVdd(uint16_t* frameData, const paramsMLX90640* params) {
+float Adafruit_MLX90640::MLX90640_GetVdd() {
     float vdd;
     float resolutionCorrection;
 
     uint16_t resolutionRAM;
 
-    resolutionRAM = (frameData[832] & ~MLX90640_CTRL_RESOLUTION_MASK) >> MLX90640_CTRL_RESOLUTION_SHIFT;
-    resolutionCorrection = POW2(params->resolutionEE) / POW2(resolutionRAM);
-    vdd = (resolutionCorrection * (int16_t) frameData[810] - params->vdd25) / params->kVdd + 3.3;
+    resolutionRAM = (mlx90640Frame_[832] & ~MLX90640_CTRL_RESOLUTION_MASK) >> MLX90640_CTRL_RESOLUTION_SHIFT;
+    resolutionCorrection = POW2(_params.resolutionEE) / POW2(resolutionRAM);
+    vdd = (resolutionCorrection * (int16_t) mlx90640Frame_[810] - _params.vdd25) / _params.kVdd + 3.3;
 
     return vdd;
 }
 
 //------------------------------------------------------------------------------
 
-float Adafruit_MLX90640::MLX90640_GetTa(uint16_t* frameData, const paramsMLX90640* params) {
+float Adafruit_MLX90640::MLX90640_GetTa() {
     int16_t ptat;
     float ptatArt;
     float vdd;
     float ta;
 
-    vdd = MLX90640_GetVdd(frameData, params);
+    vdd = MLX90640_GetVdd();
 
-    ptat = (int16_t) frameData[800];
+    ptat = (int16_t) mlx90640Frame_[800];
 
-    ptatArt = (ptat / (ptat * params->alphaPTAT + (int16_t) frameData[768])) * POW2(18);
+    // Guard against division by zero in ptatArt calculation
+    float ptatDenominator = ptat * _params.alphaPTAT + (int16_t) mlx90640Frame_[768];
+    if (ptatDenominator == 0.0f) {
+        ESP_LOGE("MLX90640", "ptatDenominator is invalid: %f", ptatDenominator);
+        return std::numeric_limits<float>::quiet_NaN();
+    }
+    ptatArt = (ptat / ptatDenominator) * POW2(18);
 
-    ta = (ptatArt / (1 + params->KvPTAT * (vdd - 3.3)) - params->vPTAT25);
-    ta = ta / params->KtPTAT + 25;
+    // Guard against division by zero in ta calculation
+    // kvDenominator = 1 + KvPTAT * (vdd - 3.3)
+    // KvPTAT ranges from -0.0078125 to 0.007568359375
+    // For kvDenominator to be 0, (vdd - 3.3) would need to be ~±128V, which is unrealistic
+    // but could occur with corrupted EEPROM/sensor data
+    float kvDenominator = 1 + _params.KvPTAT * (vdd - 3.3);
+    ta = (ptatArt / kvDenominator - _params.vPTAT25);
+    
+    ta = ta / _params.KtPTAT + 25;
 
     return ta;
 }
 
 //------------------------------------------------------------------------------
 
-int Adafruit_MLX90640::MLX90640_GetSubPageNumber(uint16_t* frameData) {
-    return frameData[833];
-
+int Adafruit_MLX90640::MLX90640_GetSubPageNumber() {
+    return mlx90640Frame_[833];
 }
 
 //------------------------------------------------------------------------------
-void Adafruit_MLX90640::MLX90640_BadPixelsCorrection(uint16_t* pixels, float* to, int mode, paramsMLX90640* params) {
+void Adafruit_MLX90640::MLX90640_BadPixelsCorrection(uint16_t* pixels, float* to, int mode) {
     float ap[4];
     uint8_t pix;
     uint8_t line;
@@ -768,7 +863,7 @@ void Adafruit_MLX90640::MLX90640_BadPixelsCorrection(uint16_t* pixels, float* to
                 to[pixels[pix]] = to[pixels[pix] - 1];
             }
             else {
-                if (IsPixelBad(pixels[pix] - 2, params) == 0 && IsPixelBad(pixels[pix] + 2, params) == 0) {
+                if (IsPixelBad(pixels[pix] - 2, &_params) == 0 && IsPixelBad(pixels[pix] + 2, &_params) == 0) {
                     ap[0] = to[pixels[pix] + 1] - to[pixels[pix] + 2];
                     ap[1] = to[pixels[pix] - 1] - to[pixels[pix] - 2];
                     if (fabs(ap[0]) > fabs(ap[1])) {
@@ -946,6 +1041,11 @@ static void ExtractAlphaParameters(uint16_t* eeData, paramsMLX90640* mlx90640) {
             alphaTemp[p] = (alphaRef + (accRow[i] << accRowScale) + (accColumn[j] << accColumnScale) + alphaTemp[p]);
             alphaTemp[p] = alphaTemp[p] / POW2(alphaScale);
             alphaTemp[p] = alphaTemp[p] - mlx90640->tgc * (mlx90640->cpAlpha[0] + mlx90640->cpAlpha[1]) / 2;
+            // Guard against division by zero - if alphaTemp[p] is 0, set to a safe default
+            if (alphaTemp[p] == 0.0f || !std::isfinite(alphaTemp[p])) {
+                ESP_LOGE("MLX90640", "alphaTemp[p] is invalid: %f", alphaTemp[p]);
+                alphaTemp[p] = 1.0f; // Safe default to prevent inf/NaN
+            }
             alphaTemp[p] = SCALEALPHA / alphaTemp[p];
         }
     }
@@ -958,10 +1058,15 @@ static void ExtractAlphaParameters(uint16_t* eeData, paramsMLX90640* mlx90640) {
     }
 
     alphaScale = 0;
-    while (temp < 32767.4) {
-        temp = temp * 2;
-        alphaScale = alphaScale + 1;
+    // Guard against infinite loop if temp is NaN/inf (comparison will be false, loop won't run)
+    // Also guard against overflow by limiting iterations
+    if (std::isfinite(temp) && temp > 0.0f) {
+        while (temp < 32767.4 && alphaScale < 31) { // Limit to prevent overflow (2^31 would overflow)
+            temp = temp * 2;
+            alphaScale = alphaScale + 1;
+        }
     }
+    // If temp was invalid, alphaScale stays at 0 (safe default)
 
     for (int i = 0; i < MLX90640_PIXEL_NUM; i++) {
         temp = alphaTemp[i] * POW2(alphaScale);

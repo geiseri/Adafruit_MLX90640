@@ -1,18 +1,7 @@
 #include <Adafruit_MLX90640.h>
 
-/*!
- *    @brief  Instantiates a new MLX90640 class
- */
-Adafruit_MLX90640::Adafruit_MLX90640(void) {}
+Adafruit_MLX90640::Adafruit_MLX90640() {}
 
-/*!
- *    @brief  Sets up the hardware and initializes I2C
- *    @param  i2c_addr
- *            The I2C address to be used.
- *    @param  wire
- *            The Wire object to be used for I2C connections.
- *    @return True if initialization was successful, otherwise false.
- */
 boolean Adafruit_MLX90640::begin(uint8_t i2c_addr, TwoWire* wire) {
   i2c_dev = new Adafruit_I2CDevice(i2c_addr, wire);
 
@@ -20,7 +9,7 @@ boolean Adafruit_MLX90640::begin(uint8_t i2c_addr, TwoWire* wire) {
     return false;
   }
   i2c_dev->setSpeed(1000000); // Speed it up, lots to read :)
-  MLX90640_I2CRead(0, MLX90640_DEVICEID1, 3, serialNumber);
+  MLX90640_I2CRead(0, Adafruit_MLX90640::MLX90640_DEVICEID1, 3, serialNumber);
 
   uint16_t eeMLX90640[832];
   if (MLX90640_DumpEE(0, eeMLX90640) != 0) {
@@ -33,19 +22,11 @@ boolean Adafruit_MLX90640::begin(uint8_t i2c_addr, TwoWire* wire) {
   Serial.println();
 #endif
 
-  MLX90640_ExtractParameters(eeMLX90640, &_params);
+  MLX90640_ExtractParameters(eeMLX90640);
   // whew!
   return true;
 }
 
-/*!
- *    @brief  Read nMemAddressRead words from I2C startAddress into data
- *    @param  slaveAddr Not used - kept to maintain backcompatible API
- *    @param  startAddress I2C memory address to start reading
- *    @param  nMemAddressRead 16-bit words to read
- *    @param  data Location to place data read
- *    @return 0 on success
- */
 int Adafruit_MLX90640::MLX90640_I2CRead(uint8_t slaveAddr,
   uint16_t startAddress,
   uint16_t nMemAddressRead,
@@ -109,20 +90,12 @@ int Adafruit_MLX90640::MLX90640_I2CGeneralReset() {
   return 0;
 }
 
-/*!
- *    @brief Get the frame-read mode
- *    @return Chess or interleaved mode
- */
-mlx90640_mode_t Adafruit_MLX90640::getMode(void) {
-  return (mlx90640_mode_t) MLX90640_GetCurMode(0);
+mlx90640_mode_t Adafruit_MLX90640::getMode() {
+  return static_cast<mlx90640_mode_t>(MLX90640_GetCurMode(0));
 }
 
-/*!
- *    @brief Set the frame-read mode
- *    @param mode Chess or interleaved mode
- */
 void Adafruit_MLX90640::setMode(mlx90640_mode_t mode) {
-  if (mode == MLX90640_CHESS) {
+  if (mode == mlx90640_mode_t::CHESS) {
     MLX90640_SetChessMode(0);
   }
   else {
@@ -130,86 +103,54 @@ void Adafruit_MLX90640::setMode(mlx90640_mode_t mode) {
   }
 }
 
-/*!
- *    @brief  Get resolution for temperature precision
- *    @returns The desired resolution (bits)
- */
-mlx90640_resolution_t Adafruit_MLX90640::getResolution(void) {
-  return (mlx90640_resolution_t) MLX90640_GetCurResolution(0);
+mlx90640_resolution_t Adafruit_MLX90640::getResolution() {
+  return static_cast<mlx90640_resolution_t>(MLX90640_GetCurResolution(0));
 }
 
-/*!
- *    @brief  Set resolution for temperature precision
- *    @param res The desired resolution (bits)
- */
 void Adafruit_MLX90640::setResolution(mlx90640_resolution_t res) {
   MLX90640_SetResolution(0, (int) res);
 }
 
-/*!
- *    @brief  Get max refresh rate
- *    @returns How many pages per second to read (2 pages per frame)
- */
-mlx90640_refreshrate_t Adafruit_MLX90640::getRefreshRate(void) {
-  return (mlx90640_refreshrate_t) MLX90640_GetRefreshRate(0);
+mlx90640_refreshrate_t Adafruit_MLX90640::getRefreshRate() {
+  return static_cast<mlx90640_refreshrate_t>(MLX90640_GetRefreshRate(0));
 }
 
-/*!
- *    @brief  Set max refresh rate - too fast and we can't read the
- *    the pages in time, start low and then increment while speeding
- *    up I2C!
- *    @param rate How many pages per second to read (2 pages per frame)
- */
 void Adafruit_MLX90640::setRefreshRate(mlx90640_refreshrate_t rate) {
   MLX90640_SetRefreshRate(0, (int) rate);
 }
 
-/*!
- *    @brief  Read 2 pages, calculate temperatures and place into framebuf
- *    @param  framebuf 24*32 floating point memory buffer
- *    @return 0 on success
- */
 int Adafruit_MLX90640::getFrame(float* framebuf) {
-  float emissivity = 0.95;
+  float emissivity = Adafruit_MLX90640::MLX90640_DEFAULT_EMISSIVITY;
   float tr = 23.15;
-  uint16_t mlx90640Frame[834];
   int status;
 
 
   for (uint8_t page = 0; page < 2; page++) {
     grab_start_time = millis();
-    status = MLX90640_GetFrameData(0, mlx90640Frame);
+    status = MLX90640_GetFrameData(0, mlx90640Frame_.data());
     grab_end_time = millis();
 
     if (status < 0) {
       return status;
     }
 
-    tr = MLX90640_GetTa(mlx90640Frame, &_params) - OPENAIR_TA_SHIFT; // For a MLX90640 in the open air the shift is -8  degC.
+    tr = MLX90640_GetTa() - Adafruit_MLX90640::OPENAIR_TA_SHIFT; // For a MLX90640 in the open air the shift is -8  degC.
 
     calculate_start_time = millis();
-    MLX90640_CalculateTo(mlx90640Frame, &_params, emissivity, tr, framebuf);
+    MLX90640_CalculateTo(emissivity, tr, framebuf);
     calculate_end_time = millis();
     ta = tr;
   }
   return 0;
 }
 
-
-/*!
- *    @brief  Read 2 pages, generate image and place into framebuf
- *    @param  framebuf 24*32 floating point memory buffer
- *    @return 0 on success
- */
 int Adafruit_MLX90640::getImage(float* framebuf) {
-
-  uint16_t mlx90640Frame[834];
   int status;
 
 
   for (uint8_t page = 0; page < 2; page++) {
     grab_start_time = millis();
-    status = MLX90640_GetFrameData(0, mlx90640Frame);
+    status = MLX90640_GetFrameData(0, mlx90640Frame_.data());
     grab_end_time = millis();
 
     if (status < 0) {
@@ -218,33 +159,26 @@ int Adafruit_MLX90640::getImage(float* framebuf) {
 
 
     calculate_start_time = millis();
-    MLX90640_GetImage(mlx90640Frame, &_params, framebuf);
+    MLX90640_GetImage(framebuf);
     calculate_end_time = millis();
   }
   return 0;
 }
 
-/*!
- *    @brief  Return ambient temperature of the TO39 package.
- *    @param  newFrame If true, will also capture a new data frame. If false,
- * return the value from the last data frame read.
- *    @return Ambient temperature as a float in degrees Celsius.
- */
 float Adafruit_MLX90640::getTa(bool newFrame) {
   if (!newFrame) {
     return ta;
   }
-  uint16_t mlx90640Frame[834];
-  MLX90640_GetFrameData(0, mlx90640Frame);
-  return MLX90640_GetTa(mlx90640Frame, &_params);
+  MLX90640_GetFrameData(0, mlx90640Frame_.data());
+  return MLX90640_GetTa();
 }
 
 bool Adafruit_MLX90640::updatePartialFrame(float* framebuf) {
-  float emissivity = 0.95;
+  float emissivity = Adafruit_MLX90640::MLX90640_DEFAULT_EMISSIVITY;
   float tr = 23.15;
   uint16_t status = 0;
 
-  auto code = MLX90640_GetFramePage(0, mlx90640Frame_, status);
+  auto code = MLX90640_GetFramePage(0, status);
   if (code != MLX90640_NO_ERROR){
     return false;
   }
@@ -253,10 +187,10 @@ bool Adafruit_MLX90640::updatePartialFrame(float* framebuf) {
     return false;
   }
 
-  tr = MLX90640_GetTa(mlx90640Frame_, &_params) - OPENAIR_TA_SHIFT; // For a MLX90640 in the open air the shift is -8  degC.
+  tr = MLX90640_GetTa() - Adafruit_MLX90640::OPENAIR_TA_SHIFT; // For a MLX90640 in the open air the shift is -8  degC.
 
   calculate_start_time = millis();
-  MLX90640_CalculateTo(mlx90640Frame_, &_params, emissivity, tr, framebuf);
+  MLX90640_CalculateTo(emissivity, tr, framebuf);
   calculate_end_time = millis();
   ta = tr;
   return true;

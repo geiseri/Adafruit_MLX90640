@@ -1,5 +1,6 @@
 #include <Adafruit_MLX90640.h>
 #include "Adafruit_Arcada.h"
+#include <algorithm>
 Adafruit_Arcada arcada;
 
 
@@ -62,7 +63,7 @@ void setup() {
   delay(100);
 
   Serial.println("Adafruit MLX90640 Camera");
-  if (! mlx.begin(MLX90640_I2CADDR_DEFAULT, &Wire)) {
+  if (! mlx.begin(Adafruit_MLX90640::MLX90640_I2CADDR_DEFAULT, &Wire)) {
     arcada.haltBox("MLX90640 not found!");
   }
   Serial.println("Found Adafruit MLX90640");
@@ -72,9 +73,9 @@ void setup() {
   Serial.print(mlx.serialNumber[1], HEX);
   Serial.println(mlx.serialNumber[2], HEX);
   
-  mlx.setMode(MLX90640_CHESS);
-  mlx.setResolution(MLX90640_ADC_18BIT);
-  mlx.setRefreshRate(MLX90640_8_HZ);
+  mlx.setMode(mlx90640_mode_t::CHESS);
+  mlx.setResolution(mlx90640_resolution_t::ADC_18BIT);
+  mlx.setRefreshRate(mlx90640_refreshrate_t::HZ_8);
   Wire.setClock(1000000); // max 1 MHz
 }
 
@@ -92,8 +93,8 @@ void loop() {
       float t = frame[h*32 + w];
       // Serial.print(t, 1); Serial.print(", ");
 
-      t = min(t, MAXTEMP);
-      t = max(t, MINTEMP); 
+      t = std::min(t, (float)MAXTEMP);
+      t = std::max(t, (float)MINTEMP); 
            
       uint8_t colorIndex = map(t, MINTEMP, MAXTEMP, 0, 255);
       

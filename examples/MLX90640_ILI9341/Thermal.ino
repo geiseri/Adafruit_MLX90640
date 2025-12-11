@@ -114,7 +114,7 @@ void setup() {
    //Serial.println("Adafruit MLX90640 Thermal Camera");
    // 
    // Read the MLX90640 via I2C (Arduino Wire)
-   if (! mlx.begin(MLX90640_I2CADDR_DEFAULT, &Wire)) {
+   if (! mlx.begin(Adafruit_MLX90640::MLX90640_I2CADDR_DEFAULT, &Wire)) {
       // MLX90640 not found
       tft.setCursor(0, 0);
       tft.setTextColor(ILI9341_WHITE); tft.setTextSize(1);
@@ -133,9 +133,9 @@ void setup() {
     */
 
    // Set up Thermal Sensor
-   mlx.setMode(MLX90640_CHESS);
-   mlx.setResolution(MLX90640_ADC_18BIT);
-   mlx.setRefreshRate(MLX90640_8_HZ);  // COuld also try MLX90640_16_HZ
+   mlx.setMode(mlx90640_mode_t::CHESS);
+   mlx.setResolution(mlx90640_resolution_t::ADC_18BIT);
+   mlx.setRefreshRate(mlx90640_refreshrate_t::HZ_8);  // COuld also try mlx90640_refreshrate_t::HZ_16
    Wire.setClock(1000000); // max 1 MHz
 }
 
