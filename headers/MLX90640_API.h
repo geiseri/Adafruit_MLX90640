@@ -18,6 +18,7 @@
 #define _MLX640_API_H_
 
 #include "Arduino.h"
+#include <cmath>
 
 #define MLX90640_NO_ERROR 0
 #define MLX90640_I2C_NACK_ERROR 1
@@ -29,6 +30,7 @@
 #define MLX90640_EEPROM_DATA_ERROR 7
 #define MLX90640_FRAME_DATA_ERROR 8
 #define MLX90640_MEAS_TRIGGER_ERROR 9
+#define MLX90640_DATA_NOT_READY_ERROR 10
 
 #define BIT_MASK(x) (1UL << (x))
 #define REG_MASK(sbit,nbits) ~((~(~0UL << (nbits))) << (sbit))
@@ -75,7 +77,9 @@
 #define MLX90640_NIBBLE3(reg16) ((reg16 & MLX90640_NIBBLE3_MASK) >> 8)
 #define MLX90640_NIBBLE4(reg16) ((reg16 & MLX90640_NIBBLE4_MASK) >> 12)
 
-#define POW2(x) pow(2, (double)x) 
+inline double pow2(double x) {
+    return pow(2.0, x);
+}
 
 #define SCALEALPHA 0.000001
 

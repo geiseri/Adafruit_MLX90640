@@ -130,7 +130,7 @@ int Adafruit_MLX90640::getFrame(float* framebuf) {
     status = MLX90640_GetFrameData(0, mlx90640Frame_.data());
     grab_end_time = millis();
 
-    if (status < 0) {
+    if (status < 0 || status > 1) {  // Errors: negative (I2C) or >= 2 (validation). Valid frame numbers are 0 or 1
       return status;
     }
 
@@ -139,7 +139,7 @@ int Adafruit_MLX90640::getFrame(float* framebuf) {
     calculate_start_time = millis();
     MLX90640_CalculateTo(emissivity, tr, framebuf);
     calculate_end_time = millis();
-    ta = tr;
+    ta_ = tr;
   }
   return 0;
 }
@@ -153,7 +153,7 @@ int Adafruit_MLX90640::getImage(float* framebuf) {
     status = MLX90640_GetFrameData(0, mlx90640Frame_.data());
     grab_end_time = millis();
 
-    if (status < 0) {
+    if (status < 0 || status > 1) {  // Errors: negative (I2C) or >= 2 (validation). Valid frame numbers are 0 or 1
       return status;
     }
 
@@ -167,7 +167,7 @@ int Adafruit_MLX90640::getImage(float* framebuf) {
 
 float Adafruit_MLX90640::getTa(bool newFrame) {
   if (!newFrame) {
-    return ta;
+    return ta_;
   }
   MLX90640_GetFrameData(0, mlx90640Frame_.data());
   return MLX90640_GetTa();
@@ -177,21 +177,19 @@ bool Adafruit_MLX90640::updatePartialFrame(float* framebuf) {
   float emissivity = Adafruit_MLX90640::MLX90640_DEFAULT_EMISSIVITY;
   float tr = 23.15;
   uint16_t status = 0;
-
+  grab_start_time = millis();
   auto code = MLX90640_GetFramePage(0, status);
-  if (code != MLX90640_NO_ERROR){
+  grab_end_time = millis();
+  if (code != MLX90640_NO_ERROR ||  MLX90640_GET_DATA_READY(status) == 0){
     return false;
   }
 
-  if (status < 0) {
-    return false;
-  }
-
-  tr = MLX90640_GetTa() - Adafruit_MLX90640::OPENAIR_TA_SHIFT; // For a MLX90640 in the open air the shift is -8  degC.
+  ta_ = MLX90640_GetTa();
+  tr = ta_ - Adafruit_MLX90640::OPENAIR_TA_SHIFT; // For a MLX90640 in the open air the shift is -8  degC.
 
   calculate_start_time = millis();
   MLX90640_CalculateTo(emissivity, tr, framebuf);
   calculate_end_time = millis();
-  ta = tr;
+  ta_ = tr;
   return true;
 }

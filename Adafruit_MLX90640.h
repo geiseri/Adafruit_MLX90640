@@ -142,7 +142,7 @@ public:
   uint16_t serialNumber[3]; ///< Unique serial number read from device
 
 private:
-  float ta = -999.0;
+  float ta_ = -999.0;
   /*!
    *    @brief  Read nMemAddressRead words from I2C startAddress into data
    *    @param  slaveAddr Not used - kept to maintain backcompatible API
